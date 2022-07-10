@@ -47,6 +47,17 @@ def pad_seq(sequences):
         sequence_padded.append(seq_)
     return sequence_padded, sequence_length
     
+def pad_lengths(sequences):
+    sequence_length = [len(v) for v in sequences]
+    max_len = max(sequence_length)
+    sequence_padded = []
+    for seq in sequences:
+        add_length = max_len - len(seq)
+        _temp = seq
+        for i in range(add_length):
+            _temp.append(0)
+        sequence_padded.append(_temp)
+    return sequences, sequence_length
 
 def load_features(data, vf_path, qf_path, video_seq_len):
     video_features = dict()

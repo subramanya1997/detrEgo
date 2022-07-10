@@ -2,7 +2,7 @@ import numpy as np
 import torch
 import torch.utils.data
 
-from utils.data_utils import pad_seq
+from utils.data_utils import pad_seq, pad_lengths
 
 class Dataset(torch.utils.data.Dataset):
     def __init__(self, dataset, video_features, query_features, configs):
@@ -14,22 +14,27 @@ class Dataset(torch.utils.data.Dataset):
 
     def __getitem__(self, index):
         record = self.dataset[index]
-        video_feature = self.video_features[record["vid"]]
-        query_feature = [self.query_features[qid] for qid in record["query_feature_name"]]
+        
+        video_feature = self.video_features[record["vid"]][record['v_s_e'][0]:record['v_s_e'][1]]
+        query_feature = [self.query_features[qid] for qid, _bool in zip(record["query_feature_name"], record['query_bool']) if _bool]
         
         query_flen = [query.shape[0] for query in query_feature]
         query_feature = torch.cat(query_feature, dim=1)
         target = []
-        for s, e in zip(record["s_time"], record["e_time"]):
-            target.append([ s / record['num_frames'] , e  / record['num_frames']])
+        for s, e, _bool in zip(record["s_time"], record["e_time"], record['query_bool']):
+            if not _bool:
+                continue
+            target.append([ s / record['number_frame'] , e  / record['number_frame']])
         target = torch.tensor(target)
-        return record, video_feature, query_feature[0], query_flen, target
+        query_bool = torch.tensor([i for i, _bool in enumerate(record['query_bool']) if _bool]) 
+        return record, video_feature, query_feature[0], query_flen, target, query_bool
 
     def __len__(self):
         return len(self.dataset)
 
+
 def collate_fn(batch):
-    records, video_features, query_features, query_flens, targets = zip(*batch)
+    records, video_features, query_features, query_flens, targets, query_bools = zip(*batch)
 
     vfeats, vfeat_lens = pad_seq(video_features)
     vfeats = torch.stack(vfeats)
@@ -41,6 +46,8 @@ def collate_fn(batch):
 
     targ = {}
     targ['target_spans'] = [ dict(spans=d) for d in targets]
+    targ['target_bools'] = [ dict(spans=d) for d in query_bools]
+    query_flens, query_flens_lens = pad_lengths(query_flens)
     query_flens = torch.tensor(query_flens)
     return records, vfeats, vfeat_lens, qfeats, qfeat_lens, query_flens, targ
 

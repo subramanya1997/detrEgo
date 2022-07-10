@@ -1,16 +1,19 @@
 data_dir: /work/snagabhushan_umass_edu/dataset/nlq_official_v1/
 save_dir: dataset
 video_f_path: official
-num_querys: 5
+num_querys: 4
 suffix: None
 max_pos_len: 1000
 video_seq_len: 1
+video_split_length: 128
+video_strid_length: 128
+video_split: True
 
 ## text features
 query_fmodel: roberta-large
 
 ## dataloader
-batch_size: 16
+batch_size: 32
 
 ## train 
 epochs: 300
@@ -19,10 +22,10 @@ mode: train
 
 ## model 
 save_model_dir: save
-model_name: join_2_layers
-model_version: 2
-enc_layers: 2
-dec_layers: 2
+model_name: join_6_layers
+model_version: 4
+enc_layers: 6
+dec_layers: 6
 hidden_dim: 1024
 dropout: 0.1
 nheads: 8
@@ -40,6 +43,6 @@ aux_loss: True
 pred_label: cos
 
 ## train
-lr: 0.0001
-wd: 0.0001
+lr: 0.00001
+wd: 0.00001
 lr_drop_step: 50

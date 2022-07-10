@@ -53,7 +53,7 @@ class HungarianMatcher(nn.Module):
         out_spans = outputs["pred_spans"].flatten(0, 1)  # [batch_size * num_proposals, 2]
 
         # Also concat the target labels and spans
-        tgt_ids = torch.cat([torch.arange(len(v["spans"])) for v in targets["target_spans"]])  # [total #spans in the batch]
+        tgt_ids = torch.cat([v["spans"] for v in targets["target_bools"]])  # [total #spans in the batch]\
         tgt_spans = torch.cat([v["spans"] for v in targets["target_spans"]])  # [num_target_spans in batch, 2]
         # tgt_ids = torch.full([len(tgt_spans)], self.foreground_label)   # [total #spans in the batch]
 
@@ -77,7 +77,9 @@ class HungarianMatcher(nn.Module):
         C = self.cost_span * cost_span + self.cost_giou * cost_giou + self.cost_class * cost_class
         C = C.view(bs, num_proposals, -1).cpu() # [batch_size, num_proposals, total #spans in the batch]
 
-        sizes = [len(v["spans"]) for v in targets["target_spans"]] # #spans per batch [#spans, #spans, #spans, ...]
+        sizes = [len(v["spans"]) for v in targets["target_bools"]] # #spans per batch [#spans, #spans, #spans, ...]
+        if sum(sizes) != C.shape[2]:
+            print(sum(sizes), len(C.split(sizes, -1)), C.shape, tgt_spans.shape, tgt_ids.shape)
         indices = [linear_sum_assignment(c[i]) for i, c in enumerate(C.split(sizes, -1))] # pairs of (pred, target)
 
         return [(torch.as_tensor(i, dtype=torch.int64), torch.as_tensor(j, dtype=torch.int64)) for i, j in indices]

@@ -62,7 +62,7 @@ def main(train_loader, val_loader, config):
 
     home_dir = os.path.join(
         config.save_model_dir,
-        f"{config.model_name}_{config.model_version}_{config.num_querys}",
+        f"{config.model_name}_{config.model_version}_{config.num_querys}_{config.video_strid_length}",
     )
     if config.suffix is not None:
         home_dir = home_dir + f"_{config.suffix}"
@@ -112,7 +112,6 @@ def main(train_loader, val_loader, config):
             model.train()
             criterion.train()
             for idx, data in tqdm(enumerate(train_loader), total=len(train_loader), desc=f"Train: epoch {epoch+1} / {config.epochs}"):
-
                 records, vfeats, vfeat_lens, qfeats, qfeat_lens, query_flens, targets = data
                 v_mask = convert_length_mask(vfeat_lens)
                 q_mask = convert_length_mask(qfeat_lens)
@@ -121,10 +120,14 @@ def main(train_loader, val_loader, config):
                 v_mask = v_mask.to(config.device)
                 q_mask = q_mask.to(config.device)
                 temp_target = []
+                temp_target_bool = []
                 for t in targets["target_spans"]:
                     temp_target.append(dict(spans=t['spans'].to(config.device)))
-                
+                for t in targets["target_bools"]:
+                    temp_target_bool.append(dict(spans=t['spans'].to(config.device)))
+
                 targets["target_spans"] = temp_target
+                targets["target_bools"] = temp_target_bool
 
                 outputs = model(vfeats, qfeats, v_mask, q_mask, epoch, idx, att_vis_path, "Train")
 
@@ -214,7 +217,6 @@ def getMetrics(results, epoch):
 
     return results, mIoU, score_str
 
-                
 def getResults(outputs, records, config):
     import torch.nn as nn
     softmax = nn.Softmax(dim=-1)
@@ -226,27 +228,69 @@ def getResults(outputs, records, config):
     results = {}
     
     for span, score, label, record in zip(timespans.cpu(), scores.cpu(), labels.cpu(), records):
-        spans = span * record['num_frames'] * config.video_seq_len * 1.875
+        spans = (span * record['number_frame'])
         sorted_preds = torch.cat([label[:, None], spans, score[:, None]], dim=1).tolist()
         sorted_preds = sorted(sorted_preds, key=lambda x: x[3], reverse=True)
-
+        
         sorted_preds = torch.tensor(sorted_preds)
         sorted_labels = sorted_preds[:, 0].int().tolist()
         sorted_spans = sorted_preds[:, 1:].tolist()
         sorted_spans = [[float(f'{e:.4f}') for e in row] for row in sorted_spans]
 
-        for idx, query_id in enumerate(record["query_feature_name"]):
-            pred_spans = [[ max(0, (pred_span[0]-pred_span[1])) , min(record['video_frames_len'] * 1.875, (pred_span[0]+pred_span[1])), pred_span[2]] for pred_label, pred_span in zip(sorted_labels, sorted_spans) if pred_label == idx]
-            
+        for idx, (query_id, queryB) in enumerate(zip(record["query_feature_name"], record["query_bool"])):
+            if not queryB:
+                continue
+            pred_spans = [[ max( 0, (pred_span[0]-pred_span[1])) , min( record['number_frame'], (pred_span[0]+pred_span[1])), pred_span[2]] for pred_label, pred_span in zip(sorted_labels, sorted_spans) if pred_label == idx]
+            # _pred_spans = [[ (pred_span[0]-pred_span[1]), (pred_span[0]+pred_span[1]), pred_span[2]] for pred_label, pred_span in zip(sorted_labels, sorted_spans) if pred_label == idx]
+            _t_c = record['s_time'][idx]
+            _t_w = record['e_time'][idx]
             cur_query_pred = dict(
                             video_id=record['vid'],
-                            pred_timespan=pred_spans[:5],
-                            gt_timespan=[record['exact_s_time'][idx], record['exact_e_time'][idx]]
+                            pred_timespan=pred_spans[:6],
+                            gt_span=[record['o_s_time'][idx], record['o_e_time'][idx]],
+                            gt_timespan=[ _t_c - _t_w, _t_c + _t_w],
+                            v_s_e=record['v_s_e'],   
                         )
             results[query_id] = cur_query_pred
 
     return results
 
+                
+# def getResults(outputs, records, config):
+#     import torch.nn as nn
+#     softmax = nn.Softmax(dim=-1)
+#     timespans = outputs['pred_spans']  # (batch_size, #queries, 2)
+#     label_prob = softmax(outputs['pred_logits'])  # (batch_size, #queries, #classes)
+#     scores, labels = label_prob.max(-1)  # (batch_size, #queries)
+
+#     # compose predictions
+#     results = {}
+    
+#     for span, score, label, record in zip(timespans.cpu(), scores.cpu(), labels.cpu(), records):
+#         spans = ((span * record['number_frame']) + record['v_s_e'][0]) / 1.875
+#         sorted_preds = torch.cat([label[:, None], spans, score[:, None]], dim=1).tolist()
+#         sorted_preds = sorted(sorted_preds, key=lambda x: x[3], reverse=True)
+        
+#         sorted_preds = torch.tensor(sorted_preds)
+#         sorted_labels = sorted_preds[:, 0].int().tolist()
+#         sorted_spans = sorted_preds[:, 1:].tolist()
+#         sorted_spans = [[float(f'{e:.4f}') for e in row] for row in sorted_spans]
+
+#         for idx, (query_id, queryB) in enumerate(zip(record["query_feature_name"], record["query_bool"])):
+#             if not queryB:
+#                 continue
+#             pred_spans = [[ max(record['v_s_e'][0] / 1.875, (pred_span[0]-pred_span[1])) , min( (record['v_s_e'][1] / 1.875), (pred_span[0]+pred_span[1])), pred_span[2]] for pred_label, pred_span in zip(sorted_labels, sorted_spans) if pred_label == idx]
+#             # _pred_spans = [[ (pred_span[0]-pred_span[1]), (pred_span[0]+pred_span[1]), pred_span[2]] for pred_label, pred_span in zip(sorted_labels, sorted_spans) if pred_label == idx]
+#             cur_query_pred = dict(
+#                             video_id=record['vid'],
+#                             pred_timespan=pred_spans[:6],
+#                             gt_span=[record['o_s_time'][idx], record['o_e_time'][idx]],
+#                             gt_timespan=[record['exact_s_time'][idx], record['exact_e_time'][idx]],
+#                             v_s_e=record['v_s_e'],   
+#                         )
+#             results[query_id] = cur_query_pred
+
+#     return results
 
 if __name__ == "__main__":
     args = parse_arguments()
@@ -261,4 +305,3 @@ if __name__ == "__main__":
     test_loader = get_test_loader(dataset['test_set'], video_features, query_features, args)
 
     main(train_loader, val_loader, args)
-
