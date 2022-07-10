@@ -215,7 +215,7 @@ class EpisodicNLQSplitProcessor:
                         record["annotation_uid"].append(_data[3])
                         record["query_idx"].append(_data[4])
                         record["annotation_length"].append(_annotation_length)
-                    if _cnt == len(temp_data):
+                    if _cnt == len(temp_data) and scope != "val":
                         continue
                     results.append(record)
                     self.idx_counter += 1
